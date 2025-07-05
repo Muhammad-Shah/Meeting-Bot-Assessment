@@ -1,17 +1,10 @@
-Flask==2.3.3
-Flask-CORS==4.0.0
-Werkzeug==2.3.7
-click==8.1.7
-itsdangerous==2.1.2
-Jinja2==3.1.2
-MarkupSafe==2.1.3
-blinker==1.6.3
-
-# Optional: Add these for AI/ML development
-# requests==2.31.0
-# numpy==1.24.3
-# pandas==2.0.3
-# scikit-learn==1.3.0
-# transformers==4.35.0
-# torch==2.1.0
-# openai==0.28.1
+fastapi[standard]
+uvicorn
+python-multipart
+requests
+# LangChain packages for AI/ML functionality
+langchain
+langchain-openai
+langchain-community
+langchain-core
+langchain-mongodb

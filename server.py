@@ -1,53 +1,72 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+import os
+import uuid
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, Dict
 from chatbot.engine import respond
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
-app = Flask(__name__)
-CORS(app)
+# Load environment variables from .env file
+load_dotenv()
+
+app = FastAPI(title="Meeting Bot API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # In-memory session storage
-sessions = {}
+sessions: Dict[str, dict] = {}
 
-@app.route('/upload', methods=['POST'])
-def upload_transcript():
-    data = request.get_json()
-    transcript = data.get('transcript', '')
-    session_id = data.get('session_id', '')
+# Pydantic models for request validation
+class TranscriptUpload(BaseModel):
+    transcript: str
+    session_id: str = str(uuid.uuid4())
 
-    if not transcript or not session_id:
-        return jsonify({'error': 'Transcript and session_id are required'}), 400
+class ChatMessage(BaseModel):
+    message: str
+    session_id: str
 
+@app.post("/upload")
+async def upload_transcript(data: TranscriptUpload):
+    """Upload a meeting transcript"""
     # Save to session
-    sessions[session_id] = {
-        'transcript': transcript,
-        'chat_history': []
+    sessions[data.session_id] = {
+        'transcript': data.transcript,
+        'chat_history': [],
+        'session_id': data.session_id
     }
 
-    return jsonify({'message': 'Transcript uploaded successfully'}), 200
+    return {"message": "Transcript uploaded successfully"}
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    data = request.get_json()
-    message = data.get('message', '')
-    session_id = data.get('session_id', '')
-
-    if not message or not session_id:
-        return jsonify({'error': 'Message and session_id are required'}), 400
-
-    session_data = sessions.get(session_id)
+@app.post("/chat")
+async def chat(data: ChatMessage):
+    """Chat with the bot"""
+    session_data = sessions.get(data.session_id)
 
     if not session_data:
-        return jsonify({'error': 'Session not found. Please upload a transcript first.'}), 404
+        raise HTTPException(status_code=404, detail="Session not found. Please upload a transcript first.")
+
+    # Ensure session_id is in session_data
+    session_data['session_id'] = data.session_id
 
     # Append to chat history
     chat_entry = {
         'sender': 'user',
-        'content': message
+        'content': data.message
     }
     session_data['chat_history'].append(chat_entry)
 
-    # Get response
-    response_message = respond(message, session_data)
+    # Get response from the enhanced engine
+    response_message = respond(data.message, session_data)
 
     # Append bot response to chat history
     chat_entry = {
@@ -56,7 +75,32 @@ def chat():
     }
     session_data['chat_history'].append(chat_entry)
 
-    return jsonify({'response': response_message}), 200
+    return {"response": response_message}
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+@app.get("/health")
+async def health_check():
+    """Simple health check endpoint"""
+    return {"status": "healthy", "message": "Meeting Bot API is running"}
+
+# Serve index.html
+# Mount the static files directory
+app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
+# Serve index.html
+@app.get("/")
+async def index():
+    return FileResponse("frontend/index.html")
+
+if __name__ == "__main__":
+    # Check if OpenAI API key is configured
+    if not os.getenv('OPENAI_API_KEY'):
+        print("WARNING: OPENAI_API_KEY environment variable is not set!")
+        print("Please set your OpenAI API key in the environment or .env file")
+    
+    import uvicorn
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=5000,
+        reload=os.getenv('DEBUG', 'False').lower() == 'true'
+    )
